@@ -29,8 +29,8 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 HF_API_KEY = os.getenv("HF_API_KEY", "").strip()
 
 # Cookie storage paths (file paths or JSON strings)
-LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "/path/to/linkedin_cookies.json").strip()
-INDEED_COOKIES_PATH = os.getenv("INDEED_COOKIES_PATH", "/path/to/indeed_cookies.json").strip()
+LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "/home/ubuntu/job-bot/linkedin_cookies.json").strip()
+INDEED_COOKIES_PATH = os.getenv("INDEED_COOKIES_PATH", "/home/ubuntu/job-bot/indeed_cookies.json").strip()
 
 # Logging
 LOG_FILE = os.getenv("LOG_FILE", "./logs/bot.log").strip()
@@ -55,6 +55,20 @@ try:
     MIN_CV_MATCH_SCORE = float(os.getenv("MIN_CV_MATCH_SCORE", "7.0"))
 except ValueError:
     MIN_CV_MATCH_SCORE = 7.0
+
+# Added missing CV_PATH for ranking module
+CV_PATH = os.getenv("CV_PATH", "/home/ubuntu/job-bot/cv.pdf").strip()
+
+# Ranking thresholds for filtering
+try:
+    RANKING_THRESHOLD = float(os.getenv("RANKING_THRESHOLD", "7.0"))
+except ValueError:
+    RANKING_THRESHOLD = 7.0
+
+try:
+    COMPANY_RATING_THRESHOLD = float(os.getenv("COMPANY_RATING_THRESHOLD", "6.0"))
+except ValueError:
+    COMPANY_RATING_THRESHOLD = 6.0
 
 # Misc
 try:
