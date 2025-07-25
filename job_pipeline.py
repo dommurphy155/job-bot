@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from config import SCRAPE_TIMES, SEND_TIMES
 from scrape_linkedin import scrape_linkedin_jobs
-from scrape_indeed import scrape_indeed_jobs
+from scrape_indeed import build_query_params
 from huggingface_ranker import rank_jobs
 from telegram_bot import send_jobs_to_telegram
 from cleanup import run_cleanup
