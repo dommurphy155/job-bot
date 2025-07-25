@@ -34,6 +34,17 @@ INDEED_COOKIES_PATH = os.getenv("INDEED_COOKIES_PATH", "/home/ubuntu/job-bot/ind
 
 # Logging
 LOG_FILE = os.getenv("LOG_FILE", "./logs/bot.log").strip()
+LOG_DIR = os.getenv("LOG_DIR", "./logs").strip()
+
+try:
+    MAX_JOB_AGE_DAYS = int(os.getenv("MAX_JOB_AGE_DAYS", "7"))
+except (ValueError, TypeError):
+    MAX_JOB_AGE_DAYS = 7
+
+try:
+    MAX_LOG_AGE_DAYS = int(os.getenv("MAX_LOG_AGE_DAYS", "30"))
+except (ValueError, TypeError):
+    MAX_LOG_AGE_DAYS = 30
 
 # Job scoring thresholds
 try:
