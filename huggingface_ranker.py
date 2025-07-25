@@ -7,18 +7,18 @@ from config import CV_PATH, RANKING_THRESHOLD, COMPANY_RATING_THRESHOLD
 
 logger = logging.getLogger("jobbot.hf_ranker")
 
-# Ensure cache env var is set for transformers/huggingface models
+# Set cache path for Hugging Face transformers
 os.environ["TRANSFORMERS_CACHE"] = os.getenv("TRANSFORMERS_CACHE", "/home/ubuntu/.cache/huggingface/hub")
 
-# Load the sentence-transformers model for embeddings once
+# Load embedding model once (reuse)
 _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Load sentiment analysis pipeline once (for company review scoring)
+# Load sentiment analysis pipeline once (reuse)
 _sentiment_pipeline = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
 
 
 def load_cv_text(cv_path: str = CV_PATH) -> str:
-    """Load plain text from the PDF CV file."""
+    """Load plain text from CV PDF file."""
     from PyPDF2 import PdfReader
 
     try:
@@ -35,14 +35,14 @@ CV_TEXT = load_cv_text()
 
 def semantic_score(job_title: str, job_desc: str, cv_text: str = CV_TEXT) -> float:
     """
-    Compute semantic similarity score between job posting and CV text using cosine similarity of embeddings.
-    Returns a float between 0 and 1.
+    Compute semantic similarity between job posting and CV text.
+    Returns cosine similarity in [0,1].
     """
     try:
         job_text = f"{job_title.strip()}. {job_desc.strip()}"
         job_emb = _embedding_model.encode(job_text, convert_to_tensor=True)
         cv_emb = _embedding_model.encode(cv_text, convert_to_tensor=True)
-        similarity = util.cos_sim(job_emb, cv_emb).item()  # cosine similarity scalar
+        similarity = util.cos_sim(job_emb, cv_emb).item()
         return similarity
     except Exception as e:
         logger.warning(f"[SEMANTIC_FAIL] Could not score job: {e}")
@@ -50,13 +50,17 @@ def semantic_score(job_title: str, job_desc: str, cv_text: str = CV_TEXT) -> flo
 
 
 def company_rating_and_summary(company_reviews: List[str]) -> Tuple[int, str]:
-    """Rate company from reviews and generate a summary string."""
+    """
+    Generate a company rating out of 10 based on sentiment analysis of reviews,
+    and a text summary explaining the rating.
+    """
     if not company_reviews:
         return 5, "No reviews available."
 
     pos, neg = 0, 0
     for review in company_reviews:
         try:
+            # Limit to first 512 chars to avoid pipeline overload
             result = _sentiment_pipeline(review[:512])[0]
             label = result.get("label", "").lower()
             if "positive" in label:
@@ -64,7 +68,7 @@ def company_rating_and_summary(company_reviews: List[str]) -> Tuple[int, str]:
             else:
                 neg += 1
         except Exception as e:
-            logger.warning(f"[REVIEW_ANALYSIS_FAIL] Skipped one review: {e}")
+            logger.warning(f"[REVIEW_ANALYSIS_FAIL] Skipped review due to error: {e}")
 
     total = pos + neg
     if total == 0:
@@ -82,8 +86,11 @@ def company_rating_and_summary(company_reviews: List[str]) -> Tuple[int, str]:
     return score, summary
 
 
-def filter_and_rank_jobs(jobs: List[Dict]) -> List[Dict]:
-    """Filter and rank job list based on semantic relevance, company score, and salary."""
+def rank_jobs(jobs: List[Dict]) -> List[Dict]:
+    """
+    Filter and rank jobs based on semantic relevance, company rating, and salary thresholds.
+    Returns a list sorted by semantic score (descending), then company rating.
+    """
     filtered = []
 
     for job in jobs:
@@ -111,5 +118,4 @@ def filter_and_rank_jobs(jobs: List[Dict]) -> List[Dict]:
 
         filtered.append(job)
 
-    # Rank strictly by semantic_score, fallback to rating
     return sorted(filtered, key=lambda j: (j["semantic_score"], j["company_rating"]), reverse=True)
