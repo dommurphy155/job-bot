@@ -1,12 +1,17 @@
 import requests
 import logging
+import json
 from typing import List, Dict
 from utils import safe_request, clean_text, parse_salary
-from config import INDEED_COOKIES, JOB_RADIUS_MILES, JOB_LOCATION_POSTCODE, JOB_TYPE_PART_TIME
+from config import INDEED_COOKIES_PATH, RADIUS_MILES, POSTCODE, PART_TIME_ONLY
 
 logger = logging.getLogger("jobbot.scrape_indeed")
 
 BASE_URL = "https://www.indeed.com/jobs"
+
+# Load cookies dynamically from JSON file
+with open(INDEED_COOKIES_PATH, "r") as f:
+    INDEED_COOKIES = json.load(f)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
@@ -17,9 +22,9 @@ HEADERS = {
 def build_query_params(start: int = 0) -> Dict[str, str]:
     return {
         "q": "",  # Blank keyword to get all jobs
-        "l": JOB_LOCATION_POSTCODE,
-        "radius": str(JOB_RADIUS_MILES),
-        "jt": JOB_TYPE_PART_TIME,
+        "l": POSTCODE,
+        "radius": str(RADIUS_MILES),
+        "jt": "parttime" if PART_TIME_ONLY else "fulltime",  # Adjust based on bool
         "start": str(start),
     }
 
