@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any
 DB_PATH = "jobbot.db"
 _lock = threading.Lock()
 
-class Database:
+class DBHandler:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
         self._initialize_db()
@@ -47,8 +47,7 @@ class Database:
             conn.commit()
 
     def _get_connection(self):
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        return conn
+        return sqlite3.connect(self.db_path, check_same_thread=False)
 
     def add_job(self, job_data: Dict[str, Any]) -> bool:
         with _lock, self._get_connection() as conn:
@@ -91,7 +90,7 @@ class Database:
             cursor.execute("UPDATE jobs SET accepted=? WHERE id=?", (accepted, job_id))
             conn.commit()
 
-    def get_unsent_jobs(self, limit: int) -> List[Dict[str, Any]]:
+    def get_jobs_to_send(self, limit: int) -> List[Dict[str, Any]]:
         with _lock, self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
