@@ -1,24 +1,24 @@
 import os
 import logging
 from typing import List, Dict, Tuple
-from config import CV_PATH, RANKING_THRESHOLD, COMPANY_RATING_THRESHOLD
-
-import numpy as np
 from sentence_transformers import SentenceTransformer, util
 from transformers import pipeline
+from config import CV_PATH, RANKING_THRESHOLD, COMPANY_RATING_THRESHOLD
 
 logger = logging.getLogger("jobbot.hf_ranker")
 
-# Set cache environment variable fallback
+# Ensure cache env var is set for transformers/huggingface models
 os.environ["TRANSFORMERS_CACHE"] = os.getenv("TRANSFORMERS_CACHE", "/home/ubuntu/.cache/huggingface/hub")
 
-# Load sentence-transformers model for embeddings
+# Load the sentence-transformers model for embeddings once
 _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Load sentiment analysis pipeline once (company review scoring)
+# Load sentiment analysis pipeline once (for company review scoring)
 _sentiment_pipeline = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
 
+
 def load_cv_text(cv_path: str = CV_PATH) -> str:
+    """Load plain text from the PDF CV file."""
     from PyPDF2 import PdfReader
 
     try:
@@ -29,21 +29,28 @@ def load_cv_text(cv_path: str = CV_PATH) -> str:
         logger.error(f"[CV_LOAD_FAIL] Error reading CV: {e}")
         return ""
 
+
 CV_TEXT = load_cv_text()
 
+
 def semantic_score(job_title: str, job_desc: str, cv_text: str = CV_TEXT) -> float:
-    """Calculate cosine similarity between job posting text and CV text embeddings."""
+    """
+    Compute semantic similarity score between job posting and CV text using cosine similarity of embeddings.
+    Returns a float between 0 and 1.
+    """
     try:
         job_text = f"{job_title.strip()}. {job_desc.strip()}"
         job_emb = _embedding_model.encode(job_text, convert_to_tensor=True)
         cv_emb = _embedding_model.encode(cv_text, convert_to_tensor=True)
-        similarity = util.cos_sim(job_emb, cv_emb).item()  # scalar float
+        similarity = util.cos_sim(job_emb, cv_emb).item()  # cosine similarity scalar
         return similarity
     except Exception as e:
         logger.warning(f"[SEMANTIC_FAIL] Could not score job: {e}")
         return 0.0
 
+
 def company_rating_and_summary(company_reviews: List[str]) -> Tuple[int, str]:
+    """Rate company from reviews and generate a summary string."""
     if not company_reviews:
         return 5, "No reviews available."
 
@@ -74,7 +81,9 @@ def company_rating_and_summary(company_reviews: List[str]) -> Tuple[int, str]:
 
     return score, summary
 
+
 def filter_and_rank_jobs(jobs: List[Dict]) -> List[Dict]:
+    """Filter and rank job list based on semantic relevance, company score, and salary."""
     filtered = []
 
     for job in jobs:
@@ -102,4 +111,5 @@ def filter_and_rank_jobs(jobs: List[Dict]) -> List[Dict]:
 
         filtered.append(job)
 
+    # Rank strictly by semantic_score, fallback to rating
     return sorted(filtered, key=lambda j: (j["semantic_score"], j["company_rating"]), reverse=True)
