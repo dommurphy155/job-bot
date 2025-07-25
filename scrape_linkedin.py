@@ -1,12 +1,17 @@
 import requests
 import logging
-from typing import List, Dict, Optional
+import json
+from typing import List, Dict
 from utils import safe_request, clean_text, parse_salary
-from config import LINKEDIN_COOKIES, JOB_RADIUS_MILES, JOB_LOCATION_POSTCODE, JOB_TYPE_PART_TIME
+from config import LINKEDIN_COOKIES_PATH, RADIUS_MILES, POSTCODE, PART_TIME_ONLY
 
 logger = logging.getLogger("jobbot.scrape_linkedin")
 
 BASE_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+
+# Load cookies dynamically from JSON file
+with open(LINKEDIN_COOKIES_PATH, "r") as f:
+    LINKEDIN_COOKIES = json.load(f)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
@@ -18,18 +23,18 @@ HEADERS = {
 def build_query_params(start: int = 0) -> Dict[str, str]:
     return {
         "keywords": "",
-        "location": JOB_LOCATION_POSTCODE,
-        "distance": str(JOB_RADIUS_MILES),
-        "f_TP": "1",  # Past 24 hours (to limit new jobs)
-        "f_JT": JOB_TYPE_PART_TIME,
+        "location": POSTCODE,
+        "distance": str(RADIUS_MILES),
+        "f_TP": "1",  # Past 24 hours to limit fresh jobs
+        "f_JT": "parttime" if PART_TIME_ONLY else "fulltime",  # Adjust based on bool
         "start": str(start),
         "count": "25",
     }
 
 def scrape_linkedin_jobs(max_jobs: int = 100) -> List[Dict]:
     """
-    Scrapes LinkedIn job listings within the set filters.
-    Returns a list of job dicts with fields:
+    Scrapes LinkedIn job listings within filters.
+    Returns list of dicts with:
       - title
       - company
       - location
@@ -53,17 +58,16 @@ def scrape_linkedin_jobs(max_jobs: int = 100) -> List[Dict]:
             if not elements:
                 logger.info("No more LinkedIn jobs found at start=%s", start)
                 break
+
             for job in elements:
-                # Extract fields with fallback and cleaning
                 title = clean_text(job.get("title", ""))
                 company = clean_text(job.get("companyName", ""))
                 location = clean_text(job.get("formattedLocation", ""))
                 description = clean_text(job.get("descriptionSnippet", ""))
                 job_url = job.get("jobPostingUrl", "")
 
-                # Salary parsing optional - LinkedIn rarely shows directly in this API
+                # LinkedIn rarely shows salary in this API; set None or custom logic
                 salary = None
-                # Add custom logic if salary found in description or elsewhere
 
                 job_dict = {
                     "title": title,
@@ -76,6 +80,7 @@ def scrape_linkedin_jobs(max_jobs: int = 100) -> List[Dict]:
                 jobs.append(job_dict)
                 if len(jobs) >= max_jobs:
                     break
+
             start += len(elements)
         except Exception as e:
             logger.error("Failed to parse LinkedIn response: %s", e)
