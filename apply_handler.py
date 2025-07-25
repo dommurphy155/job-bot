@@ -1,91 +1,102 @@
 import logging
-import requests
 import json
-from typing import Dict
-from config import LINKEDIN_COOKIES_PATH, INDEED_COOKIES_PATH, APPLY_TIMEOUT_SECONDS
+import re
+from typing import List, Dict
+from urllib.parse import urlencode
+from bs4 import BeautifulSoup
 
-logger = logging.getLogger("jobbot.apply_handler")
+import requests
+from utils import clean_text, safe_request, parse_salary
+from config import POSTCODE, RADIUS_MILES, PART_TIME_ONLY
 
-# Load cookies dynamically from JSON files
-with open(LINKEDIN_COOKIES_PATH, "r") as f:
-    LINKEDIN_COOKIES = json.load(f)
+logger = logging.getLogger("jobbot.scrape_indeed")
 
-with open(INDEED_COOKIES_PATH, "r") as f:
-    INDEED_COOKIES = json.load(f)
+BASE_URL = "https://www.indeed.co.uk/jobs"
 
-class AutoApplyHandler:
-    def __init__(self):
-        self.linkedin_cookies = LINKEDIN_COOKIES
-        self.indeed_cookies = INDEED_COOKIES
-        self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (compatible; JobBot/1.0; +https://github.com/dommurphy155/job-bot)"
-        })
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+}
 
-    def _get_cookies_for_platform(self, platform: str) -> Dict:
-        platform_lower = platform.lower()
-        if platform_lower == "linkedin":
-            return self.linkedin_cookies
-        elif platform_lower == "indeed":
-            return self.indeed_cookies
-        else:
-            return {}
 
-    def auto_apply(self, job: Dict) -> bool:
-        platform = job.get("platform")
-        apply_url = job.get("apply_url")
-        job_id = job.get("id", "unknown")
+def build_indeed_query(start: int = 0) -> str:
+    query_params = {
+        "q": "part time" if PART_TIME_ONLY else "",
+        "l": POSTCODE,
+        "radius": RADIUS_MILES,
+        "start": start,
+        "sort": "date",
+        "fromage": "1",  # posted today only
+        "limit": "25"
+    }
+    return f"{BASE_URL}?{urlencode(query_params)}"
 
-        if not platform or not apply_url:
-            logger.warning(f"Job {job_id} missing platform or apply_url")
-            return False
 
-        cookies = self._get_cookies_for_platform(platform)
-        if not cookies:
-            logger.error(f"No cookies configured for platform: {platform}")
-            return False
+def extract_job_cards(html: str) -> List[Dict]:
+    soup = BeautifulSoup(html, "html.parser")
+    job_cards = soup.find_all("a", attrs={"data-hide-spinner": "true", "data-jk": True})
+    jobs = []
 
+    for card in job_cards:
         try:
-            resp = self.session.get(apply_url, cookies=cookies, timeout=APPLY_TIMEOUT_SECONDS)
-            resp.raise_for_status()
+            title = clean_text(card.find("h2").text)
+            company_span = card.find("span", class_="companyName")
+            company = clean_text(company_span.text if company_span else "")
 
-            if self._contains_questions(resp.text):
-                logger.info(f"Job {job_id} requires interactive questions; skipping auto-apply.")
-                return False
+            location_span = card.find("div", class_="companyLocation")
+            location = clean_text(location_span.text if location_span else "")
 
-            payload = self._build_application_payload(job)
-            post_resp = self.session.post(apply_url, cookies=cookies, data=payload, timeout=APPLY_TIMEOUT_SECONDS)
-            post_resp.raise_for_status()
+            summary_span = card.find("div", class_="job-snippet")
+            description = clean_text(summary_span.text if summary_span else "")
 
-            if self._application_success(post_resp.text):
-                logger.info(f"Successfully auto-applied to job {job_id} on {platform}")
-                return True
-            else:
-                logger.warning(f"Auto-apply failed validation for job {job_id}")
-                return False
+            job_id = card.get("data-jk")
+            job_url = f"https://www.indeed.co.uk/viewjob?jk={job_id}"
 
-        except requests.RequestException as e:
-            logger.error(f"Network error during auto-apply for job {job_id}: {e}")
-            return False
+            salary_text = ""
+            salary_span = card.find("div", class_="metadata salary-snippet-container")
+            if salary_span:
+                salary_text = clean_text(salary_span.text)
 
-    def _contains_questions(self, html: str) -> bool:
-        question_keywords = ["question", "captcha", "assessment", "quiz", "test"]
-        html_lower = html.lower()
-        return any(keyword in html_lower for keyword in question_keywords)
+            salary = parse_salary(salary_text) if salary_text else None
 
-    def _build_application_payload(self, job: Dict) -> Dict:
-        # Minimal placeholder payload, extend as needed
-        return {
-            "applicant_name": job.get("applicant_name", ""),
-            "applicant_email": job.get("applicant_email", ""),
-            # Add more fields here per platform/form specifics
-        }
+            job = {
+                "title": title,
+                "company": company,
+                "location": location,
+                "salary": salary,
+                "description": description,
+                "job_url": job_url,
+                "platform": "indeed",
+                "id": job_id,
+            }
+            jobs.append(job)
+        except Exception as e:
+            logger.warning(f"Failed to parse job card: {e}")
+            continue
 
-    def _application_success(self, html: str) -> bool:
-        success_markers = [
-            "thank you for applying",
-            "application received",
-            "we have received your application"
-        ]
-        html_lower = html.lower()
-        return any(marker in html_lower for marker in success_markers)
+    return jobs
+
+
+def scrape_indeed_jobs(max_jobs: int = 100) -> List[Dict]:
+    all_jobs = []
+    start = 0
+
+    while len(all_jobs) < max_jobs:
+        url = build_indeed_query(start)
+        response = safe_request("GET", url, headers=HEADERS)
+        if not response:
+            logger.error(f"Indeed request failed at start={start}")
+            break
+
+        jobs = extract_job_cards(response.text)
+        if not jobs:
+            logger.info(f"No jobs found on Indeed at start={start}")
+            break
+
+        all_jobs.extend(jobs)
+        if len(jobs) < 25:
+            break
+
+        start += 25
+
+    logger.info("Scraped %d Indeed jobs", len(all_jobs))
+    return all_jobs[:max_jobs]
