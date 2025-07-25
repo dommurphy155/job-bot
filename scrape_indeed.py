@@ -26,7 +26,7 @@ def build_query_params(start: int = 0) -> Dict[str, str]:
         "location": POSTCODE,
         "distance": str(RADIUS_MILES),
         "f_TP": "1",  # Past 24 hours to limit fresh jobs
-        "f_JT": "parttime" if PART_TIME_ONLY else "fulltime",  # Adjust based on bool
+        "f_JT": "parttime" if PART_TIME_ONLY else "fulltime",
         "start": str(start),
         "count": "25",
     }
@@ -53,8 +53,14 @@ def scrape_linkedin_jobs(max_jobs: int = 100) -> List[Dict]:
             break
 
         try:
-            data = response.json()
-            elements = data.get("elements", [])
+            # LinkedIn often returns HTML instead of JSON to bots
+            if not response.text.strip().startswith("<!DOCTYPE html>"):
+                data = response.json()
+                elements = data.get("elements", [])
+            else:
+                logger.warning("LinkedIn returned HTML instead of JSON at start=%s", start)
+                break
+
             if not elements:
                 logger.info("No more LinkedIn jobs found at start=%s", start)
                 break
@@ -65,9 +71,7 @@ def scrape_linkedin_jobs(max_jobs: int = 100) -> List[Dict]:
                 location = clean_text(job.get("formattedLocation", ""))
                 description = clean_text(job.get("descriptionSnippet", ""))
                 job_url = job.get("jobPostingUrl", "")
-
-                # LinkedIn rarely shows salary in this API; set None or custom logic
-                salary = None
+                salary = None  # LinkedIn API rarely includes salary
 
                 job_dict = {
                     "title": title,
@@ -82,8 +86,9 @@ def scrape_linkedin_jobs(max_jobs: int = 100) -> List[Dict]:
                     break
 
             start += len(elements)
+
         except Exception as e:
-            logger.error("Failed to parse LinkedIn response: %s", e)
+            logger.error("Failed to parse LinkedIn response or unexpected content: %s", e)
             break
 
     logger.info("Scraped %d LinkedIn jobs", len(jobs))
